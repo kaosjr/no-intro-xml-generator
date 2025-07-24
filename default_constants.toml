@@ -1,0 +1,4 @@
+dumper = "dumper_name"
+
+use_nds_dat = false
+nds_dat_path = "ds.dat"
