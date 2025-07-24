@@ -4,12 +4,28 @@ import codecs
 import sys
 import tomllib
 import os
-from time import sleep
+import shutil
+import zlib
+import hashlib
+import subprocess
+import tempfile
 
 valid_regions = ['Australia', 'Brazil', 'Canada', 'China', 'Denmark', 'Europe', 'Finland', 'France', 'Germany', 'Greece', 'Italy', 'Japan', 'Korea', 'Mexico', 'Netherlands', 'Norway', 'Russia', 'Scandinavia', 'Spain', 'Sweden', 'United Kingdom', 'Unknown', 'USA', 'World', 'Japan, USA', 'USA, Australia', 'USA, Europe']
 valid_languages = ['Cs', 'Da', 'De', 'El', 'En', 'Es', 'Es-XL', 'Fi', 'Fr', 'Fr-CA', 'Hu', 'It', 'Ja', 'Ko', 'Nl', 'No', 'Pl', 'Pt', 'Pt-BR', 'Ru', 'Sv', 'Tr', 'Zh', 'nolang']
 
 print("No-Intro NDS XML Generator v0.1 by kaos\n")
+
+# Check for ndecrypt. I can probably have this clone it in but that requires dealing with More Things than I am willing to deal with right now.
+# TODO: This is windows-only. If someone is interested I'll probably make it work on Linux eventually.
+ndecrypt_path = "NDecrypt.exe"
+if not os.path.isfile(ndecrypt_path):
+    input("NDecrypt.exe not found in folder. \nPlease download the latest release from https://github.com/SabreTools/NDecrypt/releases and place the .exe into the same folder as this script. \nPress enter to exit.")
+    sys.exit(1)
+
+# Check for config.json for NDecrypt. Don't bother checking the keys, if they made one it's probably fine.
+if not os.path.isfile("config.json"):
+    input("config.json not found in folder. \nPlease place into the same folder as this script. You can generate a config.json using this script: https://gist.github.com/Dimensional/82f212a0b35bcf9caaa2bc9a70b3a92a. \nPress enter to exit.")
+    sys.exit(1)
 
 # Check for input file
 try:
@@ -18,6 +34,8 @@ except IndexError:
     file_path = None
     while file_path is None:
         file_path = input("Please enter a file path to use (must end in .nds). ")
+        if file_path[0] == '"':  # remove extraneous " if necessary (windows copy to path adds these which work fine in cmd but not in python)
+            file_path = file_path[1:-1]
         if not os.path.isfile(file_path):
             print("Invalid file path. Try again.")
             file_path = None
@@ -47,7 +65,7 @@ if ds_dat_loaded is True:
     nds_dat_path = constants['nds_dat_path']
     # Check if it's actually there
     if not os.path.isfile(nds_dat_path):
-        print(f"constants.toml tried loading {nds_dat_path} but no file was found. Defaulting to disabled dat usage.")
+        print(f"constants.toml tried loading dat file {nds_dat_path} but no file was found. Defaulting to disabled dat usage.")
         ds_dat_loaded = False
 
 # Extract what we can from the gm9 log.
@@ -62,32 +80,63 @@ if gm9_output_lines[8].split(' ')[0] == 'GM9i':
 else:
     tool = "GodMode9 "+gm9_output_lines[8].split('GM9 Version  : ')[1]
 
-# Prompt for GameHeader input. We need this before we can do NDS dat checks.
-gameheader_data = ''
-print("Please open GameHeader, load your game, and paste its output here (ctrl-v): ")
-while True:
-    data = input()
-    if data == '':
-        break
-    else:
-        gameheader_data += "\n"+data
-        pass
+# Get decrypted hashes using built-in python functionality.
+print("\nGenerating decrypted hashes.")
+with open(file_path, 'rb') as f:
+    # CRC32 implementation from https://stackoverflow.com/a/58141165, extended to do all comps at the same time
+    temp_crc32 = 0
+    md5_func = hashlib.md5()
+    sha1_func = hashlib.sha1()
+    sha256_func = hashlib.sha256()
+    while True:
+        sample = f.read(65536)
+        if not sample:  # no more data
+            break
+        temp_crc32 = zlib.crc32(sample, temp_crc32)
+        md5_func.update(sample)
+        sha1_func.update(sample)
+        sha256_func.update(sample)
+    dec_crc32 = ("%08X" % (temp_crc32 & 0xFFFFFFFF)).lower()
+    dec_md5 = md5_func.hexdigest()
+    dec_sha1 = sha1_func.hexdigest()
+    dec_sha256 = sha256_func.hexdigest()
 
-gameheader_filedata = gameheader_data.split("----| Header Data |------------------------------------------------\n")[0].split('\n')
-file_size = gameheader_filedata[7].split("Size (Bytes):       ")[1]
-dec_crc32 = gameheader_filedata[8].split("CRC32:              ")[1].lower()
-dec_md5 = gameheader_filedata[9].split("MD5:                ")[1].lower()
-dec_sha1 = gameheader_filedata[10].split("SHA1:               ")[1].lower()
-dec_sha256 = gameheader_filedata[11].split("SHA256:             ")[1].lower()
+# print(f"{dec_crc32}\n{dec_md5}\n{dec_sha1}\n{dec_sha256}")
 
-gameheader_encryptdata = gameheader_data.split("----| Encrypted Data |---------------------------------------------\n")[1].split('\n')
-enc_crc32 = gameheader_encryptdata[1].split("Encrypted CRC32:    ")[1].lower()
-enc_md5 = gameheader_encryptdata[2].split("Encrypted MD5:      ")[1].lower()
-enc_sha1 = gameheader_encryptdata[3].split("Encrypted SHA1:     ")[1].lower()
-enc_sha256 = gameheader_encryptdata[4].split("Encrypted SHA256:   ")[1].lower()
+# Prepare for using ndecrypt.
+# Main issues:
+#   NDecrypt does encryption/decryption in-place, so we need to copy the file first to avoid overwriting the actual dump file.
+#   NDS files are up to 512MB in size, so this may take a bit. (Warn user.)
+#   No filename can be specified for the hash file, it just inherits the name of the original file but with .hash, which is kinda silly. Would be nice if you could just pipe the output.
+# TODO: This is windows-only again.
 
-# Just make sure any extra newlines gameheader throws don't get caught by the next input block
-sleep(0.5)
+# Copy to a temporary location (with overwrite).
+file_name = os.path.basename(file_path)
+temp_dir_loc = os.path.realpath(tempfile.gettempdir())
+temp_loc = f'{temp_dir_loc}\\nointroxml\\{file_name}'
+hashfile_loc = f"{temp_loc}.hash"
+print("\nCopying file to temporary directory, this may take a moment.")
+if not os.path.exists(f"{temp_dir_loc}\\nointroxml"):
+    os.mkdir(f"{temp_dir_loc}\\nointroxml")
+shutil.copyfile(file_path, temp_loc)
+
+# Run ndecrypt on the new file.
+print("\nGenerating encrypted hashes.")
+subprocess.run(f"NDecrypt.exe e -h {temp_loc}", stdout=subprocess.DEVNULL)
+with open(hashfile_loc) as enc_hashfile:
+    file_size = enc_hashfile.readline().split(': ')[1][:-1]
+    enc_crc32 = enc_hashfile.readline().split(': ')[1][:-1]
+    enc_md5 = enc_hashfile.readline().split(': ')[1][:-1]
+    enc_sha1 = enc_hashfile.readline().split(': ')[1][:-1]
+    enc_sha256 = enc_hashfile.readline().split(': ')[1][:-1]
+
+# Delete temporary files.
+if os.path.exists(temp_loc):
+    os.remove(temp_loc)
+if os.path.exists(hashfile_loc):
+    os.remove(hashfile_loc)
+
+# print(f"{file_size}\n{enc_crc32}\n{enc_md5}\n{enc_sha1}\n{enc_sha256}")
 
 languages = None
 special = None
@@ -110,7 +159,7 @@ if ds_dat_loaded:
                 no_intro_name = game.attrib['name']
                 no_intro_id = game.attrib['id']
                 no_intro_serial = rom.attrib['serial']
-                print("Match found in DS dat. \nName:", no_intro_name, "\nNo-Intro ID:", no_intro_id, "\nSHA-1 Hash:", rom.attrib['sha1'], "\nInternal Serial:", no_intro_serial, "\n")
+                print("\nMatch found in DS dat. \nName:", no_intro_name, "\nNo-Intro ID:", no_intro_id, "\nSHA-1 Hash:", rom.attrib['sha1'], "\nInternal Serial:", no_intro_serial, "\n")
                 breakout = True
                 break
         if breakout:
@@ -127,12 +176,13 @@ if ds_dat_loaded:
             if additional[0:2] in valid_languages:
                 languages = additional.split(')')[0]
         except IndexError:
-            print("Language not listed in dat.")
+            pass
+            # print("Language not listed in dat.")
 
         name_set = True
         region_set = True
     else:
-        print("No match found in DS dat. Please enter data manually.")
+        print("\nNo match found in DS dat. Please enter data manually.")
 
 if not name_set:
     game_name = input("Enter game name: ")
@@ -160,6 +210,12 @@ else:
 
 if languages is None:
     languages = input("Enter languages (ISO 639-1 format): ")
+else:
+    confirm = input(f"Are the languages {languages} correct? (y/n) ")
+    if confirm[0] == 'y':
+        pass
+    else:
+        languages = input("Enter languages (ISO 639-1 format): ")
 
 front_serial = input("\nEnter front serial (starts with NTR- or TWL-): ")
 back_serial = input(f"Enter back serial (starts with {internal_serial}): ")
@@ -250,6 +306,7 @@ xml_str = datafile.toprettyxml(indent = "    ")
 print("\nGenerated XML:")
 print(xml_str)
 
+# TODO: Yeah this is windows-only.
 output_path = "\\".join((file_path.split('\\')[:-1]))+f"\\{game_name} - {dumper} - {dump_date}.xml"
 
 with codecs.open(output_path, "w", "utf-8") as f:
