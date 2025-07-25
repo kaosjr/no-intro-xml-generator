@@ -1,3 +1,5 @@
+program_version = "v0.1.1"
+
 from xml.dom import minidom
 import xml.etree.ElementTree as ElementTree
 import codecs
@@ -9,11 +11,12 @@ import zlib
 import hashlib
 import subprocess
 import tempfile
+import re
 
 valid_regions = ['Australia', 'Brazil', 'Canada', 'China', 'Denmark', 'Europe', 'Finland', 'France', 'Germany', 'Greece', 'Italy', 'Japan', 'Korea', 'Mexico', 'Netherlands', 'Norway', 'Russia', 'Scandinavia', 'Spain', 'Sweden', 'United Kingdom', 'Unknown', 'USA', 'World', 'Japan, USA', 'USA, Australia', 'USA, Europe']
 valid_languages = ['Cs', 'Da', 'De', 'El', 'En', 'Es', 'Es-XL', 'Fi', 'Fr', 'Fr-CA', 'Hu', 'It', 'Ja', 'Ko', 'Nl', 'No', 'Pl', 'Pt', 'Pt-BR', 'Ru', 'Sv', 'Tr', 'Zh', 'nolang']
 
-print("No-Intro NDS XML Generator v0.1 by kaos\n")
+print(f"No-Intro NDS XML Generator {program_version} by kaos\n")
 
 # Check for ndecrypt. I can probably have this clone it in but that requires dealing with More Things than I am willing to deal with right now.
 # TODO: This is windows-only. If someone is interested I'll probably make it work on Linux eventually.
@@ -68,17 +71,37 @@ if ds_dat_loaded is True:
         print(f"constants.toml tried loading dat file {nds_dat_path} but no file was found. Defaulting to disabled dat usage.")
         ds_dat_loaded = False
 
-# Extract what we can from the gm9 log.
+# Extract what we can from the GM9/GM9i log.
+# This is a mess due to the inconsistency between the two when there is no save type.
 gm9_output_lines = gm9_output.split('\n')
-internal_serial = gm9_output_lines[1].split('Product Code : ')[1][0:4]
-cart_id = gm9_output_lines[3].split('Cart ID      : ')[1]
-save_chip_id = gm9_output_lines[6].split('Save chip ID : ')[1]
-dump_date = gm9_output_lines[7].split('Timestamp    : ')[1][:10]
-# GM9 or GM9i?
-if gm9_output_lines[8].split(' ')[0] == 'GM9i':
-    tool = "GodMode9i "+gm9_output_lines[8].split('GM9i Version : ')[1]
-else:
-    tool = "GodMode9 "+gm9_output_lines[8].split('GM9 Version  : ')[1]
+try:
+    internal_serial = gm9_output_lines[1].split('Product Code : ')[1][0:4]
+    revision = gm9_output_lines[2].split('Revision     : ')[1]
+    cart_id = gm9_output_lines[3].split('Cart ID      : ')[1]
+    platform = gm9_output_lines[4].split('Platform     : ')[1]
+    save_type = gm9_output_lines[5].split('Save Type    : ')[1]
+    if save_type == 'NONE':
+        # All the rest of the lines in the file get shifted, but only on GM9i dumps.
+        if gm9_output_lines[6] == 'Save chip ID : <none>':  # GM9
+            save_chip_id = None
+            dump_date = gm9_output_lines[7].split('Timestamp    : ')[1][:10]
+            tool = "GodMode9 " + gm9_output_lines[8].split('GM9 Version  : ')[1]
+        else:  # GM9i
+            save_chip_id = None
+            dump_date = gm9_output_lines[6].split('Timestamp    : ')[1][:10]
+            tool = "GodMode9i " + gm9_output_lines[7].split('GM9i Version : ')[1]
+    else:
+        dump_date = gm9_output_lines[7].split('Timestamp    : ')[1][:10]
+        # GM9 or GM9i?
+        if gm9_output_lines[8][0:4] == 'GM9i':
+            tool = "GodMode9i "+gm9_output_lines[8].split('GM9i Version : ')[1]
+            save_chip_id = gm9_output_lines[6].split('Save chip ID : 0x')[1]  # cut off 0x
+        else:
+            tool = "GodMode9 "+gm9_output_lines[8].split('GM9 Version  : ')[1]
+            save_chip_id = gm9_output_lines[6].split('Save chip ID : ')[1]  # doesn't have 0x
+except IndexError as e:
+    input(f"Error handling GM9/GM9i log: {e}. \nPress enter to exit.")
+    sys.exit(1)
 
 # Get decrypted hashes using built-in python functionality.
 print("\nGenerating decrypted hashes.")
@@ -122,7 +145,7 @@ shutil.copyfile(file_path, temp_loc)
 
 # Run ndecrypt on the new file.
 print("\nGenerating encrypted hashes.")
-subprocess.run(f"NDecrypt.exe e -h {temp_loc}", stdout=subprocess.DEVNULL)
+subprocess.run(f'NDecrypt.exe e -h "{temp_loc}"', stdout=subprocess.DEVNULL)
 with open(hashfile_loc) as enc_hashfile:
     file_size = enc_hashfile.readline().split(': ')[1][:-1]
     enc_crc32 = enc_hashfile.readline().split(': ')[1][:-1]
@@ -146,15 +169,17 @@ region = None
 name_set = False
 region_set = False
 
+# Check the loaded No-Intro DAT file for a match if enabled.
 if ds_dat_loaded:
-    # Load NDS dat
     tree = ElementTree.parse(nds_dat_path)
     root = tree.getroot()
 
-    breakout = False
+    breakout = False  # this sucks but doubly-nested for loops need shenanigans to quick exit
     no_intro_name = None
+    # Iterate through DAT
     for game in root:
         for rom in game.iter('rom'):
+            # Look for matching sha1 and serial - should practically never be a collision. (Most games don't seem to have sha256 in the dat)
             if rom.attrib['sha1'] == dec_sha1 and rom.attrib['size'] == file_size:
                 no_intro_name = game.attrib['name']
                 no_intro_id = game.attrib['id']
@@ -165,6 +190,7 @@ if ds_dat_loaded:
         if breakout:
             break
 
+    # found match
     if no_intro_name is not None:
         # Split name into components
         split_name = no_intro_name.split(' (')
@@ -175,6 +201,7 @@ if ds_dat_loaded:
             additional = split_name[2]
             if additional[0:2] in valid_languages:
                 languages = additional.split(')')[0]
+            # TODO: Handle special tags. It's too annoying to bother right now. NDSi Enhanced is the important one, and the gm9 logs tells us if that's what we have.
         except IndexError:
             pass
             # print("Language not listed in dat.")
@@ -183,6 +210,9 @@ if ds_dat_loaded:
         region_set = True
     else:
         print("\nNo match found in DS dat. Please enter data manually.")
+
+# Manual entries
+# Don't force the user to enter some data if the DAT data was found.
 
 if not name_set:
     game_name = input("Enter game name: ")
@@ -217,8 +247,16 @@ else:
     else:
         languages = input("Enter languages (ISO 639-1 format): ")
 
-front_serial = input("\nEnter front serial (starts with NTR- or TWL-): ")
+front_serial = None
+while front_serial is None:
+    front_serial = input("\nEnter front serial (starts with NTR- or TWL-): ")
+    if front_serial[0:4] != "NTR-" and front_serial[0:4] != "TWL-":
+        print("Invalid front serial, must start with NTR- or TWL-. Please enter again.")
+        front_serial = None
+
+# The back serial has a standard format but there are exceptions. Easier to just not do sanity checks.
 back_serial = input(f"Enter back serial (starts with {internal_serial}): ")
+# The PCB serial has a semi-standard format but there are lots of exceptions. Easier to just not do sanity checks.
 pcb_serial = input("Enter PCB serial (copy: ▼ •): ")
 
 loose_str = input("Is this a loose cart? (y/n): ")
@@ -229,9 +267,17 @@ if loose_str[0] == 'y':
     manual_serial = ""
 else:
     loose = False
-    box_serial = input("Enter box serials (comma-separated): ")
-    box_barcode = input("Enter box barcode (include spaces): ")
-    manual_serial = input("Enter manual serials (comma-separated): ")
+    # Serials can be basically any format, so...
+    box_serial = input("Enter box serial(s) (comma-separated), or enter if no serial present: ")
+    # Barcodes must be only numbers.
+    box_barcode = None
+    while box_barcode is None:
+        box_barcode = input("Enter box barcode (include spaces), or enter if no barcode present: ")
+        # https://stackoverflow.com/a/20544434
+        if box_barcode != "" and not re.match("^ *[0-9][0-9 ]*$", box_barcode):
+            print("Box barcode must be blank, or only contain digits and spaces. Please enter again.")
+            box_barcode = None
+    manual_serial = input("Enter manual serial(s) (comma-separated), or enter if no serial present: ")
 
 # Create XML
 doc = minidom.Document()
@@ -247,6 +293,10 @@ archive = doc.createElement("archive")
 # archive.setAttribute('clone', 'P')  # clone from parent
 archive.setAttribute('name', game_name)
 archive.setAttribute('region', region)
+if revision != '0':
+    archive.setAttribute('version1', f"Rev {revision}")
+if platform == 'DSi Enhanced':
+    archive.setAttribute('special1', f"NDSi Enhanced")
 archive.setAttribute('languages', languages)
 archive.setAttribute('langchecked',language_checked)
 game.appendChild(archive)
@@ -263,7 +313,10 @@ details.setAttribute('r_date_info', '0')  # release date not checked
 details.setAttribute('dumper', dumper)
 details.setAttribute('project', 'No-Intro')
 details.setAttribute('tool', tool)
-details.setAttribute('comment1', f'Cart ID: {cart_id}\nSave chip ID: {save_chip_id}')
+if save_chip_id is not None:
+    details.setAttribute('comment1', f'Cart ID: {cart_id}\nSave chip ID: {save_chip_id}')
+else:
+    details.setAttribute('comment1', f'Cart ID: {cart_id}')
 if manual_serial != "":
     details.setAttribute('comment2', f'Manual serial(s): {manual_serial}')
 details.setAttribute('originalformat', 'Decrypted')
@@ -312,4 +365,4 @@ output_path = "\\".join((file_path.split('\\')[:-1]))+f"\\{game_name} - {dumper}
 with codecs.open(output_path, "w", "utf-8") as f:
     f.write(xml_str)
 
-print(f"\nXML has been written to {output_path}")
+input(f"\nXML has been written to {output_path}. Press enter to exit.")
