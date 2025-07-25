@@ -10,6 +10,8 @@ For all scripts:
 - Python 3.11 or later
 - Windows (may expand to Linux eventually)
 
+Rename the `default_constants.toml` file to `constants.toml`, and fill out the parameters. You can use [standard no-intro DATs](https://datomatic.no-intro.org/index.php?page=download&s=28) to check your dumps against and skip adding some information for verifications.
+
 ### nds.py
 Dumps to be processed should be dumped with either [GodMode9](https://github.com/d0k3/GodMode9) or [GodMode9i](https://github.com/DS-Homebrew/GodMode9i). The .txt file from the dump is currently required and should have the same name as the .nds file, just with a .txt extension. (This may become optional later.)
 
