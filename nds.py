@@ -1,4 +1,4 @@
-program_version = "v0.1.2"
+program_version = "v0.1.2a"
 
 from xml.dom import minidom
 import xml.etree.ElementTree as ElementTree
@@ -16,6 +16,7 @@ import re
 valid_regions = ['Australia', 'Brazil', 'Canada', 'China', 'Denmark', 'Europe', 'Finland', 'France', 'Germany', 'Greece', 'Italy', 'Japan', 'Korea', 'Mexico', 'Netherlands', 'Norway', 'Russia', 'Scandinavia', 'Spain', 'Sweden', 'United Kingdom', 'Unknown', 'USA', 'World', 'Japan, USA', 'USA, Australia', 'USA, Europe']
 multi_regions = ['World', 'Japan, USA', 'USA, Australia', 'USA, Europe']  # invalid as dump region
 valid_languages = ['Cs', 'Da', 'De', 'El', 'En', 'Es', 'Es-XL', 'Fi', 'Fr', 'Fr-CA', 'Hu', 'It', 'Ja', 'Ko', 'Nl', 'No', 'Pl', 'Pt', 'Pt-BR', 'Ru', 'Sv', 'Tr', 'Zh', 'nolang']
+valid_front_serial_headers = ["NTR", "TWL", "PRE"]
 
 print(f"No-Intro NDS XML Generator {program_version} by kaos\n")
 
@@ -259,9 +260,9 @@ else:
 
 front_serial = None
 while front_serial is None:
-    front_serial = input("\nEnter front serial (starts with NTR- or TWL-): ")
-    if front_serial[0:4] != "NTR-" and front_serial[0:4] != "TWL-":
-        print("Invalid front serial, must start with NTR- or TWL-. Please enter again.")
+    front_serial = input(f"\nEnter front serial (should start with one of {str(valid_front_serial_headers)[1:-1]}): ")
+    if front_serial[0:3] not in valid_front_serial_headers:
+        print(f"Invalid front serial, must start with one of {str(valid_front_serial_headers)[1:-1]}. Please enter again.")
         front_serial = None
 
 # The back serial has a standard format but there are exceptions. Easier to just not do sanity checks.
