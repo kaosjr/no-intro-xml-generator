@@ -1,4 +1,4 @@
-program_version = "v0.1.1"
+program_version = "v0.1.2"
 
 from xml.dom import minidom
 import xml.etree.ElementTree as ElementTree
@@ -14,6 +14,7 @@ import tempfile
 import re
 
 valid_regions = ['Australia', 'Brazil', 'Canada', 'China', 'Denmark', 'Europe', 'Finland', 'France', 'Germany', 'Greece', 'Italy', 'Japan', 'Korea', 'Mexico', 'Netherlands', 'Norway', 'Russia', 'Scandinavia', 'Spain', 'Sweden', 'United Kingdom', 'Unknown', 'USA', 'World', 'Japan, USA', 'USA, Australia', 'USA, Europe']
+multi_regions = ['World', 'Japan, USA', 'USA, Australia', 'USA, Europe']  # invalid as dump region
 valid_languages = ['Cs', 'Da', 'De', 'El', 'En', 'Es', 'Es-XL', 'Fi', 'Fr', 'Fr-CA', 'Hu', 'It', 'Ja', 'Ko', 'Nl', 'No', 'Pl', 'Pt', 'Pt-BR', 'Ru', 'Sv', 'Tr', 'Zh', 'nolang']
 
 print(f"No-Intro NDS XML Generator {program_version} by kaos\n")
@@ -165,6 +166,8 @@ languages = None
 special = None
 game_name = None
 region = None
+no_intro_region = None
+no_intro_id = None
 
 name_set = False
 region_set = False
@@ -195,7 +198,7 @@ if ds_dat_loaded:
         # Split name into components
         split_name = no_intro_name.split(' (')
         game_name = split_name[0]
-        region = split_name[1].split(')')[0]
+        no_intro_region = split_name[1].split(')')[0]
 
         try:
             additional = split_name[2]
@@ -217,10 +220,17 @@ if ds_dat_loaded:
 if not name_set:
     game_name = input("Enter game name: ")
 
-if region is not None:
-    confirm = input(f"Is the region {region} correct? (y/n) ")
-    if confirm[0] != 'y':
+# Dump region may be different from archive region (ex. Canada releases are often US carts, but Canada boxes).
+if no_intro_region is not None:
+    if no_intro_region in multi_regions:  # Must confirm specific dump region; skip asking.
+        print("Please set the region for this specific dump.")
         region_set = False
+    else:  # Ask if dump region matches. If it does just set it and skip entering again, otherwise ask.
+        confirm = input(f"Is the region {no_intro_region} correct? (y/n) ")
+        if confirm[0] == 'y':
+            region = no_intro_region
+        else:
+            region_set = False
 
 if not region_set:
     while True:
@@ -290,9 +300,13 @@ game.setAttribute('name', game_name)
 datafile.appendChild(game)
 
 archive = doc.createElement("archive")
-# archive.setAttribute('clone', 'P')  # clone from parent
+if no_intro_id is not None:  # use existing DAT id if verification
+    archive.setAttribute('number', no_intro_id)
 archive.setAttribute('name', game_name)
-archive.setAttribute('region', region)
+if no_intro_region is not None:  # if verification, use existing no-intro region
+    archive.setAttribute('region', no_intro_region)
+else:  # new dump, set region for both dump and archive
+    archive.setAttribute('region', region)
 if revision != '0':
     archive.setAttribute('version1', f"Rev {revision}")
 if platform == 'DSi Enhanced':
@@ -320,6 +334,7 @@ else:
 if manual_serial != "":
     details.setAttribute('comment2', f'Manual serial(s): {manual_serial}')
 details.setAttribute('originalformat', 'Decrypted')
+details.setAttribute('region', region)  # this dump's region specifically
 source.appendChild(details)
 
 serials = doc.createElement("serials")
