@@ -1,4 +1,4 @@
-program_version = "v0.1.2a"
+program_version = "v0.1.3"
 
 from xml.dom import minidom
 import xml.etree.ElementTree as ElementTree
@@ -140,13 +140,13 @@ file_name = os.path.basename(file_path)
 temp_dir_loc = os.path.realpath(tempfile.gettempdir())
 temp_loc = f'{temp_dir_loc}\\nointroxml\\{file_name}'
 hashfile_loc = f"{temp_loc}.hash"
-print("\nCopying file to temporary directory, this may take a moment.")
+print("Copying file to temporary directory, this may take a moment.")
 if not os.path.exists(f"{temp_dir_loc}\\nointroxml"):
     os.mkdir(f"{temp_dir_loc}\\nointroxml")
 shutil.copyfile(file_path, temp_loc)
 
 # Run ndecrypt on the new file.
-print("\nGenerating encrypted hashes.")
+print("Generating encrypted hashes.")
 subprocess.run(f'NDecrypt.exe e -h "{temp_loc}"', stdout=subprocess.DEVNULL)
 with open(hashfile_loc) as enc_hashfile:
     file_size = enc_hashfile.readline().split(': ')[1][:-1]
@@ -188,7 +188,7 @@ if ds_dat_loaded:
                 no_intro_name = game.attrib['name']
                 no_intro_id = game.attrib['id']
                 no_intro_serial = rom.attrib['serial']
-                print("\nMatch found in DS dat. \nName:", no_intro_name, "\nNo-Intro ID:", no_intro_id, "\nSHA-1 Hash:", rom.attrib['sha1'], "\nInternal Serial:", no_intro_serial, "\n")
+                print("\nMatch found in DS dat. \nName:", no_intro_name, "\nNo-Intro ID:", no_intro_id, "\nSHA-1 Hash (decrypted):", rom.attrib['sha1'], "\nInternal Serial:", no_intro_serial, "\n")
                 breakout = True
                 break
         if breakout:
@@ -203,7 +203,7 @@ if ds_dat_loaded:
 
         try:
             additional = split_name[2]
-            if additional[0:2] in valid_languages:
+            if additional.split(')')[0] in valid_languages:
                 languages = additional.split(')')[0]
             # TODO: Handle special tags. It's too annoying to bother right now. NDSi Enhanced is the important one, and the gm9 logs tells us if that's what we have.
         except IndexError:
@@ -213,13 +213,15 @@ if ds_dat_loaded:
         name_set = True
         region_set = True
     else:
-        print("\nNo match found in DS dat. Please enter data manually.")
+        print("\nNo match found in DS dat (could be bad dump or new dump, check online DAT info). Please enter data manually.")
+        print(f"\nDecrypted hashes: \nCRC-32: {dec_crc32}\nMD5: {dec_md5}\nSHA-1: {dec_sha1}\nSHA-256: {dec_sha256}")
+        print(f"\nInternal serial: {internal_serial}\nRevision: {revision}")
 
 # Manual entries
 # Don't force the user to enter some data if the DAT data was found.
 
 if not name_set:
-    game_name = input("Enter game name: ")
+    game_name = input("\nEnter game name: ")
 
 # Dump region may be different from archive region (ex. Canada releases are often US carts, but Canada boxes).
 if no_intro_region is not None:
@@ -241,22 +243,36 @@ if not region_set:
         else:
             break
 
-language_checked = input("Did you check the languages? (y/n) ")
-if language_checked[0] == 'y':
-    language_checked = 'yes'
-elif language_checked[0] == 'n':
-    language_checked = 'no'
+language_checked = None
+if no_intro_id is not None:  # force a language check if new dump
+    while language_checked is None:
+        language_checked = input("Did you check the languages? (y/n) ")
+        if language_checked[0] == 'y':
+            language_checked = 'yes'
+        elif language_checked[0] == 'n':
+            language_checked = 'no'
+            languages = ""  # leave language field blank, but don't prompt to enter a language
+        else:
+            language_checked = None
+            print("Invalid selection. Please enter again.")
 else:
-    language_checked = 'unk'
+    print("For new dumps, language entry is required.")
+    language_checked = 'yes'
 
 if languages is None:
-    languages = input("Enter languages (ISO 639-1 format): ")
-else:
+    while languages is None:
+        languages = input("Enter languages (ISO 639-1 format), comma-separated (no spaces): ")
+        lang_to_check = languages.split(',')
+        for lang in lang_to_check:
+            if lang_to_check not in valid_languages:
+                print("Invalid language, please enter again.")
+                languages = None
+elif languages != "":
     confirm = input(f"Are the languages {languages} correct? (y/n) ")
     if confirm[0] == 'y':
         pass
     else:
-        languages = input("Enter languages (ISO 639-1 format): ")
+        languages = input("Enter languages (ISO 639-1 format), comma-separated (no spaces): : ")
 
 front_serial = None
 while front_serial is None:
