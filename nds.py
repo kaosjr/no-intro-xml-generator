@@ -1,4 +1,4 @@
-program_version = "v0.1.3"
+program_version = "v0.1.3a"
 
 from xml.dom import minidom
 import xml.etree.ElementTree as ElementTree
@@ -264,7 +264,7 @@ if languages is None:
         languages = input("Enter languages (ISO 639-1 format), comma-separated (no spaces): ")
         lang_to_check = languages.split(',')
         for lang in lang_to_check:
-            if lang_to_check not in valid_languages:
+            if lang not in valid_languages:
                 print("Invalid language, please enter again.")
                 languages = None
 elif languages != "":
