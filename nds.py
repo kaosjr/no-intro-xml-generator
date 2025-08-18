@@ -1,4 +1,4 @@
-program_version = "v0.1.3a"
+program_version = "v0.1.4"
 
 from xml.dom import minidom
 import xml.etree.ElementTree as ElementTree
@@ -13,9 +13,8 @@ import subprocess
 import tempfile
 import re
 
-valid_regions = ['Australia', 'Brazil', 'Canada', 'China', 'Denmark', 'Europe', 'Finland', 'France', 'Germany', 'Greece', 'Italy', 'Japan', 'Korea', 'Mexico', 'Netherlands', 'Norway', 'Russia', 'Scandinavia', 'Spain', 'Sweden', 'United Kingdom', 'Unknown', 'USA', 'World', 'Japan, USA', 'USA, Australia', 'USA, Europe']
-multi_regions = ['World', 'Japan, USA', 'USA, Australia', 'USA, Europe']  # invalid as dump region
-valid_languages = ['Cs', 'Da', 'De', 'El', 'En', 'Es', 'Es-XL', 'Fi', 'Fr', 'Fr-CA', 'Hu', 'It', 'Ja', 'Ko', 'Nl', 'No', 'Pl', 'Pt', 'Pt-BR', 'Ru', 'Sv', 'Tr', 'Zh', 'nolang']
+from db import *
+
 valid_front_serial_headers = ["NTR", "TWL", "PRE"]
 
 print(f"No-Intro NDS XML Generator {program_version} by kaos\n")
@@ -203,8 +202,8 @@ if ds_dat_loaded:
 
         try:
             additional = split_name[2]
-            if additional.split(')')[0] in valid_languages:
-                languages = additional.split(')')[0]
+            #if additional.split(')')[0] in valid_languages:
+            languages = additional.split(')')[0]
             # TODO: Handle special tags. It's too annoying to bother right now. NDSi Enhanced is the important one, and the gm9 logs tells us if that's what we have.
         except IndexError:
             pass
@@ -251,7 +250,8 @@ if no_intro_id is not None:  # force a language check if new dump
             language_checked = 'yes'
         elif language_checked[0] == 'n':
             language_checked = 'no'
-            languages = ""  # leave language field blank, but don't prompt to enter a language
+            if languages is None:
+                languages = ""  # leave language field blank, but don't prompt to enter a language
         else:
             language_checked = None
             print("Invalid selection. Please enter again.")
@@ -267,7 +267,7 @@ if languages is None:
             if lang not in valid_languages:
                 print("Invalid language, please enter again.")
                 languages = None
-elif languages != "":
+elif languages != "" and language_checked != 'no':
     confirm = input(f"Are the languages {languages} correct? (y/n) ")
     if confirm[0] == 'y':
         pass
@@ -344,12 +344,12 @@ details.setAttribute('r_date_info', '0')  # release date not checked
 details.setAttribute('dumper', dumper)
 details.setAttribute('project', 'No-Intro')
 details.setAttribute('tool', tool)
+comment2 = f"Cart ID: {cart_id}"
 if save_chip_id is not None:
-    details.setAttribute('comment1', f'Cart ID: {cart_id}\nSave chip ID: {save_chip_id}')
-else:
-    details.setAttribute('comment1', f'Cart ID: {cart_id}')
+    comment2 += f"\nSave chip ID: {save_chip_id}"
 if manual_serial != "":
-    details.setAttribute('comment2', f'Manual serial(s): {manual_serial}')
+    comment2 += f"\nManual serial(s): {manual_serial}"
+details.setAttribute('comment2', comment2)
 details.setAttribute('originalformat', 'Decrypted')
 details.setAttribute('region', region)  # this dump's region specifically
 source.appendChild(details)
