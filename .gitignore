@@ -3,3 +3,4 @@ constants.toml
 *.dat
 config.json
 NDecrypt.exe
+__pycache__

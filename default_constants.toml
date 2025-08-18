@@ -2,3 +2,8 @@ dumper = "dumper_name"
 
 use_nds_dat = false
 nds_dat_path = "ds.dat"
+
+use_3ds_dat = false
+3ds_dat_path = "3ds.dat"
+use_n3ds_dat = false
+n3ds_dat_path = "n3ds.dat"
