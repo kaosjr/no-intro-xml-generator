@@ -1,4 +1,4 @@
-program_version = "v0.1.4"
+program_version = "v0.1.5"
 
 from xml.dom import minidom
 import xml.etree.ElementTree as ElementTree
@@ -85,21 +85,34 @@ try:
         # All the rest of the lines in the file get shifted, but only on GM9i dumps.
         if gm9_output_lines[6] == 'Save chip ID : <none>':  # GM9
             save_chip_id = None
-            dump_date = gm9_output_lines[7].split('Timestamp    : ')[1][:10]
-            tool = "GodMode9 " + gm9_output_lines[8].split('GM9 Version  : ')[1]
+            if gm9_output_lines[7][0:15] == 'Padding Byte : ':
+                # gm9 2.2.0 or > log
+                padding_byte = int(f"0x{gm9_output_lines[7][15:]}", 16)  # unused
+                dump_date = gm9_output_lines[8].split('Timestamp    : ')[1][:10]
+                tool = "GodMode9 " + gm9_output_lines[9].split('GM9 Version  : ')[1]
+            else:
+                dump_date = gm9_output_lines[7].split('Timestamp    : ')[1][:10]
+                tool = "GodMode9 " + gm9_output_lines[8].split('GM9 Version  : ')[1]
         else:  # GM9i
             save_chip_id = None
             dump_date = gm9_output_lines[6].split('Timestamp    : ')[1][:10]
             tool = "GodMode9i " + gm9_output_lines[7].split('GM9i Version : ')[1]
     else:
-        dump_date = gm9_output_lines[7].split('Timestamp    : ')[1][:10]
         # GM9 or GM9i?
         if gm9_output_lines[8][0:4] == 'GM9i':
             tool = "GodMode9i "+gm9_output_lines[8].split('GM9i Version : ')[1]
+            dump_date = gm9_output_lines[7].split('Timestamp    : ')[1][:10]
             save_chip_id = gm9_output_lines[6].split('Save chip ID : 0x')[1]  # cut off 0x
         else:
-            tool = "GodMode9 "+gm9_output_lines[8].split('GM9 Version  : ')[1]
             save_chip_id = gm9_output_lines[6].split('Save chip ID : ')[1]  # doesn't have 0x
+            if gm9_output_lines[7][0:15] == 'Padding Byte : ':
+                # gm9 2.2.0 or > log
+                padding_byte = int(f"0x{gm9_output_lines[7][15:]}", 16)  # unused
+                dump_date = gm9_output_lines[8].split('Timestamp    : ')[1][:10]
+                tool = "GodMode9 " + gm9_output_lines[9].split('GM9 Version  : ')[1]
+            else:
+                dump_date = gm9_output_lines[7].split('Timestamp    : ')[1][:10]
+                tool = "GodMode9 "+gm9_output_lines[8].split('GM9 Version  : ')[1]
 except IndexError as e:
     input(f"Error handling GM9/GM9i log: {e}. \nPress enter to exit.")
     sys.exit(1)
