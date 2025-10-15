@@ -1,4 +1,4 @@
-program_version = "v0.1.5"
+program_version = "v0.1.5a"
 
 from xml.dom import minidom
 import xml.etree.ElementTree as ElementTree
@@ -400,14 +400,15 @@ encrypted_file.setAttribute('sha256', enc_sha256)
 encrypted_file.setAttribute('serial', internal_serial)
 source.appendChild(encrypted_file)
 
-xml_str = datafile.toprettyxml(indent = "    ")
+xml_str = doc.toprettyxml(indent = "    ", encoding="utf-8")
 print("\nGenerated XML:")
-print(xml_str)
+print(xml_str.decode("utf-8"))
 
 # TODO: Yeah this is windows-only.
 output_path = "\\".join((file_path.split('\\')[:-1]))+f"\\{game_name} - {dumper} - {dump_date}.xml"
 
-with codecs.open(output_path, "w", "utf-8") as f:
+with codecs.open(output_path, 'wb') as f:
+    # noinspection PyTypeChecker
     f.write(xml_str)
 
 input(f"\nXML has been written to {output_path}. Press enter to exit.")
